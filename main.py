@@ -1,19 +1,31 @@
+import math
 import os
 import pickle
 import re
-import soundfile as sf
-import numpy as np
-import matplotlib.pyplot as plt
-import matplotlib.style as ms
-from tqdm import tqdm
+
 import librosa
-import math
-import random
-import pandas as pd
-import IPython.display
 import librosa.display
+import numpy as np
+import pandas as pd
 import shutup
+from sklearn.metrics import accuracy_score
+from sklearn.model_selection import train_test_split
+from sklearn.neural_network import MLPClassifier
+from tqdm import tqdm
+
 shutup.please()
+sr = 44100
+emotion_dict = {'ang': 0,
+                'hap': 1,
+                'exc': 2,
+                'sad': 3,
+                'fru': 4,
+                'fea': 5,
+                'sur': 6,
+                'neu': 7,
+                'dis': 8,
+                'xxx': 9,
+                'oth': 9}
 
 
 def Read_labels(datapath):
@@ -48,7 +60,7 @@ def Read_labels(datapath):
     df_iemocap['val'] = vals
     df_iemocap['act'] = acts
     df_iemocap['dom'] = doms
-    # df_iemocap.to_csv('C:/Users/avata/Desktop/SPEECH MODEL/data/df_iemocap.csv', index=False)
+    df_iemocap.to_csv('C:/Users/avata/Desktop/SPEECH MODEL/data/df_iemocap.csv', index=False)
 
     return df_iemocap
 
@@ -71,15 +83,17 @@ def Read_audio(datapath, labels_df):
                 audio_vectors[truncated_wav_file_name] = truncated_wav_vector
         except:
             print('ai haga')
-    with open('C:/Users/avata/Desktop/SPEECH MODEL/data/audio_vectors1.pkl','wb') as f:
+    with open('C:/Users/avata/Desktop/SPEECH MODEL/data/audio_vectors1.pkl', 'wb') as f:
         pickle.dump(audio_vectors, f)
     return audio_vectors
 
 
 file_path = 'C:/Users/avata/Desktop/GP/IEMOCAP_full_release/Session1/dialog/EmoEvaluation/'
 file_path2 = 'C:/Users/avata/Desktop/GP/IEMOCAP_full_release/Session1/dialog/wav/'
-# labels_df = pd.DataFrame(data=Read_labels(file_path))
-# audio_vector = Read_audio(file_path2, labels_df)
+
+
+labels_df = pd.DataFrame(data=Read_labels(file_path))
+audio_vector = Read_audio(file_path2, labels_df)
 
 
 def extract_audio_features(Audio_vectors,labels_df, emotion_dict):
@@ -87,41 +101,41 @@ def extract_audio_features(Audio_vectors,labels_df, emotion_dict):
     for index, row in labels_df.iterrows():
         wav_file_name = row['wav_file']
         label = emotion_dict[row['emotion']]
-        mfcc = np.mean(librosa.feature.mfcc(y=Audio_vectors[wav_file_name], sr=sr, n_mfcc=40).T, axis=0)
+        mfcc = np.mean(librosa.feature.mfcc(y=Audio_vectors[wav_file_name], sr=sr, n_mfcc=1).T, axis=0)
         # append(pd.DataFrame(feature_list, index=columns).transpose(), ignore_index=True)
         df = df.append(pd.DataFrame([wav_file_name, mfcc, label], index=['wav_file', 'mfcc', 'label']).transpose(), ignore_index=True)
-    print(df.shape)
+    with open('C:/Users/avata/Desktop/SPEECH MODEL/data/audios1.pkl', 'wb') as f:
+        pickle.dump(df, f)
+
+    # df['mfcc'] = df['mfcc'].infer_objects(convert_numeric=True)
     return df
+
 
 # def labeling():
 
 
-
 # read the pickle and the csv
-labels_df = pd.read_csv('C:/Users/avata/Desktop/SPEECH MODEL/data/df_iemocap.csv')
-audio_vectors = pickle.load(open('C:/Users/avata/Desktop/SPEECH MODEL/data/audio_vectors1.pkl','rb'))
-random_file_name = list(audio_vectors.keys())[random.choice(range(len(audio_vectors.keys())))]
-y = audio_vectors[random_file_name]
-sr = 44100
-# print(librosa.feature.mfcc(y=y, sr=sr, n_mfcc=40))
-# plt.figure(figsize=(15,2))
-# librosa.display.waveshow(y, sr=sr, alpha=0.45, color='r')
-# plt.show()
-
-emotion_dict = {'ang': 0,
-                'hap': 1,
-                'exc': 2,
-                'sad': 3,
-                'fru': 4,
-                'fea': 5,
-                'sur': 6,
-                'neu': 7,
-                'dis': 8,
-                'xxx': 9,
-                'oth': 9}
-labeled_df = extract_audio_features(audio_vectors, labels_df, emotion_dict)
 
 
+# labels_df = pd.read_csv('C:/Users/avata/Desktop/SPEECH MODEL/data/df_iemocap.csv')
+# audio_vectors = pickle.load(open('C:/Users/avata/Desktop/SPEECH MODEL/data/audio_vectors1.pkl', 'rb'))
+# labeled_features_df = extract_audio_features(audio_vectors,labels_df,emotion_dict)
+# labeled_features_df = pickle.load(open('C:/Users/avata/Desktop/SPEECH MODEL/data/audios1.pkl','rb'))
+#
+# for index,row in labeled_features_df.iterrows():
+#     labeled_features_df['mfcc'][index] = np.array(labeled_features_df['mfcc'][index]).reshape(1,-1)
+# x_train, x_test, y_train, y_test = train_test_split((labeled_features_df['mfcc']), labeled_features_df['label'],
+#                                                     test_size=0.25)
+# model = MLPClassifier(alpha=0.01, batch_size=256, epsilon=1e-08, hidden_layer_sizes=(300,), learning_rate='adaptive',
+#                       max_iter=500)
+# # print(x_train[0].shape)
+# x_train = np.array(x_train).reshape(-1,1)
+# y_train = np.array(y_train).reshape(-1,1)
+# print('shape is ',x_train.shape,' ',y_train.shape)
+# model.fit(x_train,y_train.astype(int))
+#
+# y_pred = model.predict(x_test)
+# accuracy = accuracy_score(y_true=y_test, y_pred=y_pred)
+# print("Accuracy: {:.2f}%".format(accuracy * 100))
 
-
-
+# break
