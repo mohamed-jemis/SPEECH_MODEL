@@ -1,13 +1,20 @@
-import math
 import os
 import pickle
 import re
-
-import librosa
-import librosa.display
-import numpy as np
-import pandas as pd
 import shutup
+import soundfile as sf
+import numpy as np
+import matplotlib.pyplot as plt
+import matplotlib.style as ms
+from tqdm import tqdm
+import librosa
+import math
+import random
+import pandas as pd
+import IPython.display
+import librosa.display
+
+ms.use('seaborn-muted')
 from sklearn.metrics import accuracy_score
 from sklearn.model_selection import train_test_split
 from sklearn.neural_network import MLPClassifier
@@ -88,22 +95,28 @@ def Read_audio(datapath, labels_df):
     return audio_vectors
 
 
-file_path = 'C:/Users/avata/Desktop/GP/IEMOCAP_full_release/Session1/dialog/EmoEvaluation/'
-file_path2 = 'C:/Users/avata/Desktop/GP/IEMOCAP_full_release/Session1/dialog/wav/'
+# making the labels and the audio vector
 
 
-labels_df = pd.DataFrame(data=Read_labels(file_path))
-audio_vector = Read_audio(file_path2, labels_df)
+def audio_vector_and_labels():
+    file_path = 'C:/Users/avata/Desktop/GP/IEMOCAP_full_release/Session1/dialog/EmoEvaluation/'
+    file_path2 = 'C:/Users/avata/Desktop/GP/IEMOCAP_full_release/Session1/dialog/wav/'
+    labels_df2 = pd.DataFrame(data=Read_labels(file_path))
+    audio_vector = Read_audio(file_path2, labels_df2)
 
 
-def extract_audio_features(Audio_vectors,labels_df, emotion_dict):
-    df = pd.DataFrame(columns=['wav_file','mfcc','label'])
+# End
+
+
+def extract_audio_features2(Audio_vectors, labels_df, emotion_dict):
+    df = pd.DataFrame(columns=['wav_file', 'mfcc', 'label'])
     for index, row in labels_df.iterrows():
         wav_file_name = row['wav_file']
         label = emotion_dict[row['emotion']]
         mfcc = np.mean(librosa.feature.mfcc(y=Audio_vectors[wav_file_name], sr=sr, n_mfcc=1).T, axis=0)
         # append(pd.DataFrame(feature_list, index=columns).transpose(), ignore_index=True)
-        df = df.append(pd.DataFrame([wav_file_name, mfcc, label], index=['wav_file', 'mfcc', 'label']).transpose(), ignore_index=True)
+        df = df.append(pd.DataFrame([wav_file_name, mfcc, label], index=['wav_file', 'mfcc', 'label']).transpose(),
+                       ignore_index=True)
     with open('C:/Users/avata/Desktop/SPEECH MODEL/data/audios1.pkl', 'wb') as f:
         pickle.dump(df, f)
 
@@ -111,14 +124,86 @@ def extract_audio_features(Audio_vectors,labels_df, emotion_dict):
     return df
 
 
-# def labeling():
-
-
 # read the pickle and the csv
 
 
 # labels_df = pd.read_csv('C:/Users/avata/Desktop/SPEECH MODEL/data/df_iemocap.csv')
 # audio_vectors = pickle.load(open('C:/Users/avata/Desktop/SPEECH MODEL/data/audio_vectors1.pkl', 'rb'))
+#
+# random_file_name = list(audio_vectors.keys())[random.choice(range(len(audio_vectors.keys())))]
+# y = audio_vectors[random_file_name]
+# sr = 44100
+
+
+def show():
+    labels_df = pd.read_csv('C:/Users/avata/Desktop/SPEECH MODEL/data/df_iemocap.csv')
+    audio_vectors = pickle.load(open('C:/Users/avata/Desktop/SPEECH MODEL/data/audio_vectors1.pkl', 'rb'))
+    random_file_name = list(audio_vectors.keys())[random.choice(range(len(audio_vectors.keys())))]
+    y = audio_vectors[random_file_name]
+    # plt.figure(figsize=(15,2))
+    # librosa.display.waveshow(y, sr=sr, max_points=1000, alpha=0.25, color='r')
+    print('Signal mean = {:.5f}'.format(np.mean(abs(y))))
+    print('Signal std dev = {:.5f}'.format(np.std(y)))
+    rmse = librosa.feature.rmsz(y + 0.0001)[0]
+    plt.figure(figsize=(15, 2))
+    plt.plot(rmse)
+    plt.ylabel('RMSE')
+    print('RMSE mean = {:.5f}'.format(np.mean(rmse)))
+    print('RMSE std dev = {:.5f}'.format(np.std(rmse)))
+    plt.show()
+
+
+def extract_audio_features(labels_path, audio_vector_path, emotion_dictionary, sessions,columns):
+    labels_df = pd.read_csv(labels_path)
+    audio_vector = pickle.load(open('C:/Users/avata/Desktop/SPEECH MODEL/data/audio_vectors1.pkl', 'rb'))
+    for index, row in tqdm(labels_df[labels_df['wav_file'].str.contains('Ses01')].iterrows()):
+        try:
+            name = row['wav_file']
+            label = emotion_dictionary[row['emotion']]
+            y = audio_vector[name]
+
+            #            start extracting features
+            features_list = ['name', 'label']
+            # signal mean and standard deviation
+            signal_mean = np.mean(abs(y))
+            signal_standard_deaviation = np.std(y)
+            features_list.append(signal_mean)
+            features_list.append(signal_standard_deaviation)
+            # signal rmse mean and std
+            rmse = librosa.feature.rms(y + 0.0001)[0]
+            rmse_mean = np.mean(rmse)
+            rmse_std = np.std(rmse)
+            features_list.append(rmse_mean)
+            features_list.append(rmse_std)
+
+            # calculate silence from rmse and threshold
+            silence = 0
+            for energy in rmse:
+                if energy <= 0.4 * rmse_mean:
+                    silence += 1
+            silence /= float(len(rmse))
+            features_list.append(silence)
+            harmonic = librosa.effects.hpss(y)[0]
+            y_harmonic = np.mean(harmonic) * 1000
+            features_list.append(y_harmonic)
+
+            # auto correlation based on pitch detection
+            center_clipper = 0.45 * signal_mean
+            center_clipped = []
+            for s in y:
+                if s >= center_clipper:
+                    center_clipped.append(s - center_clipper)
+                elif s <= -center_clipper:
+                    center_clipped.append(s + center_clipper)
+                elif np.abs(s) < center_clipper:
+                    center_clipped.append(0)
+            auto_corrs = librosa.core.autocorrelate(np.array(center_clipped))
+            features_list.append(1000 * np.max(auto_corrs) / len(auto_corrs))  # auto_corr_max (scaled by 1000)
+            features_list.append(np.std(auto_corrs))  # auto_corr_std
+
+            features = features.append(pd.DataFrame(features_list, index=columns).transpose(), ignore_index=True)
+        except:
+            print('ai haga')
 # labeled_features_df = extract_audio_features(audio_vectors,labels_df,emotion_dict)
 # labeled_features_df = pickle.load(open('C:/Users/avata/Desktop/SPEECH MODEL/data/audios1.pkl','rb'))
 #
