@@ -6,6 +6,7 @@ import soundfile as sf
 import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.style as ms
+from sklearn.ensemble import RandomForestClassifier
 from tqdm import tqdm
 import librosa
 import math
@@ -15,11 +16,11 @@ import IPython.display
 import librosa.display
 
 ms.use('seaborn-muted')
-from sklearn.metrics import accuracy_score
+from sklearn.metrics import accuracy_score, f1_score, precision_score, recall_score
 from sklearn.model_selection import train_test_split
 from sklearn.neural_network import MLPClassifier
 from tqdm import tqdm
-
+import xgboost as xgb
 shutup.please()
 sr = 44100
 emotion_dict = {'ang': 0,
@@ -33,6 +34,8 @@ emotion_dict = {'ang': 0,
                 'dis': 8,
                 'xxx': 9,
                 'oth': 9}
+
+columns = ['wav_file', 'label', 'sig_mean', 'sig_std', 'rmse_mean', 'rmse_std', 'silence', 'harmonic', 'auto_corr_max', 'auto_corr_std']
 
 
 def Read_labels(datapath):
@@ -135,27 +138,26 @@ def extract_audio_features2(Audio_vectors, labels_df, emotion_dict):
 # sr = 44100
 
 
-def show():
+# def show():
     labels_df = pd.read_csv('C:/Users/avata/Desktop/SPEECH MODEL/data/df_iemocap.csv')
     audio_vectors = pickle.load(open('C:/Users/avata/Desktop/SPEECH MODEL/data/audio_vectors1.pkl', 'rb'))
-    random_file_name = list(audio_vectors.keys())[random.choice(range(len(audio_vectors.keys())))]
-    y = audio_vectors[random_file_name]
-    # plt.figure(figsize=(15,2))
-    # librosa.display.waveshow(y, sr=sr, max_points=1000, alpha=0.25, color='r')
-    print('Signal mean = {:.5f}'.format(np.mean(abs(y))))
-    print('Signal std dev = {:.5f}'.format(np.std(y)))
-    rmse = librosa.feature.rmsz(y + 0.0001)[0]
-    plt.figure(figsize=(15, 2))
-    plt.plot(rmse)
-    plt.ylabel('RMSE')
-    print('RMSE mean = {:.5f}'.format(np.mean(rmse)))
-    print('RMSE std dev = {:.5f}'.format(np.std(rmse)))
-    plt.show()
+#     random_file_name = list(audio_vectors.keys())[random.choice(range(len(audio_vectors.keys())))]
+#     y = audio_vectors[random_file_name]
+#     # plt.figure(figsize=(15,2))
+#     # librosa.display.waveshow(y, sr=sr, max_points=1000, alpha=0.25, color='r')
+#     print('Signal mean = {:.5f}'.format(np.mean(abs(y))))
+#     print('Signal std dev = {:.5f}'.format(np.std(y)))
+#     rmse = librosa.feature.rmsz(y + 0.0001)[0]
+#     plt.figure(figsize=(15, 2))
+#     plt.plot(rmse)
+#     plt.ylabel('RMSE')
+#     print('RMSE mean = {:.5f}'.format(np.mean(rmse)))
+#     print('RMSE std dev = {:.5f}'.format(np.std(rmse)))
+#     plt.show()
 
 
-def extract_audio_features(labels_path, audio_vector_path, emotion_dictionary, sessions,columns):
-    labels_df = pd.read_csv(labels_path)
-    audio_vector = pickle.load(open('C:/Users/avata/Desktop/SPEECH MODEL/data/audio_vectors1.pkl', 'rb'))
+def extract_audio_features(labels, audio_vector, emotion_dictionary, sessions, columns):
+    features_df = pd.DataFrame(columns=columns)
     for index, row in tqdm(labels_df[labels_df['wav_file'].str.contains('Ses01')].iterrows()):
         try:
             name = row['wav_file']
@@ -163,7 +165,7 @@ def extract_audio_features(labels_path, audio_vector_path, emotion_dictionary, s
             y = audio_vector[name]
 
             #            start extracting features
-            features_list = ['name', 'label']
+            features_list = [name, label]
             # signal mean and standard deviation
             signal_mean = np.mean(abs(y))
             signal_standard_deaviation = np.std(y)
@@ -200,27 +202,80 @@ def extract_audio_features(labels_path, audio_vector_path, emotion_dictionary, s
             auto_corrs = librosa.core.autocorrelate(np.array(center_clipped))
             features_list.append(1000 * np.max(auto_corrs) / len(auto_corrs))  # auto_corr_max (scaled by 1000)
             features_list.append(np.std(auto_corrs))  # auto_corr_std
-
-            features = features.append(pd.DataFrame(features_list, index=columns).transpose(), ignore_index=True)
+            features_df = features_df.append(pd.DataFrame(features_list, index=columns).transpose(), ignore_index=True)
         except:
             print('ai haga')
-# labeled_features_df = extract_audio_features(audio_vectors,labels_df,emotion_dict)
-# labeled_features_df = pickle.load(open('C:/Users/avata/Desktop/SPEECH MODEL/data/audios1.pkl','rb'))
-#
-# for index,row in labeled_features_df.iterrows():
-#     labeled_features_df['mfcc'][index] = np.array(labeled_features_df['mfcc'][index]).reshape(1,-1)
-# x_train, x_test, y_train, y_test = train_test_split((labeled_features_df['mfcc']), labeled_features_df['label'],
-#                                                     test_size=0.25)
-# model = MLPClassifier(alpha=0.01, batch_size=256, epsilon=1e-08, hidden_layer_sizes=(300,), learning_rate='adaptive',
-#                       max_iter=500)
-# # print(x_train[0].shape)
-# x_train = np.array(x_train).reshape(-1,1)
-# y_train = np.array(y_train).reshape(-1,1)
-# print('shape is ',x_train.shape,' ',y_train.shape)
-# model.fit(x_train,y_train.astype(int))
-#
-# y_pred = model.predict(x_test)
-# accuracy = accuracy_score(y_true=y_test, y_pred=y_pred)
-# print("Accuracy: {:.2f}%".format(accuracy * 100))
+    return features_df
 
-# break
+
+def map_oversample_split():
+    df = pd.read_csv('data/features_df.csv')
+    df = df[df['label'].isin([0, 1, 2, 3, 4, 5, 6, 7])]
+    df['label'] = df['label'].map({0: 0, 1: 1, 2: 1, 3: 2, 4: 2, 5: 3, 6: 4, 7: 5})
+    df.to_csv('data/no_sample_df.csv')
+    fear_df = df[df['label'] == 3]
+    for i in range(10):
+        df = df.append(fear_df)
+    sur_df = df[df['label'] == 4]
+    for i in range(5):
+        df = df.append(sur_df)
+    df.to_csv('data/modified_df.csv')
+    x_train, x_test = train_test_split(df, test_size=0.20)
+    x_train.to_csv('data/audio_train.csv', index=False)
+    x_test.to_csv('data/audio_test.csv', index=False)
+    print(x_train.shape, x_test.shape)
+
+
+def one_hot_encoder(true_labels, num_records, num_classes):
+    temp = np.array(true_labels[:num_records])
+    true_labels = np.zeros((num_records, num_classes))
+    true_labels[np.arange(num_records), temp] = 1
+    return true_labels
+
+
+def display_results(y_test, pred_probs,model):
+    pred = np.argmax(pred_probs, axis=-1)
+    print('model is ', model)
+    print('Test Set Accuracy =  {0:.3f}'.format(accuracy_score(y_test, pred)))
+    print('Test Set F-score =  {0:.3f}'.format(f1_score(y_test, pred, average='macro')))
+    print('Test Set Precision =  {0:.3f}'.format(precision_score(y_test, pred, average='macro')))
+    print('Test Set Recall =  {0:.3f}'.format(recall_score(y_test, pred, average='macro')))
+
+
+labels_df = pd.read_csv('C:/Users/avata/Desktop/SPEECH MODEL/data/df_iemocap.csv')
+audio_vectors = pickle.load(open('C:/Users/avata/Desktop/SPEECH MODEL/data/audio_vectors1.pkl', 'rb'))
+# map_oversample_split()
+
+x_train = pd.read_csv('data/audio_train.csv')
+x_test = pd.read_csv('data/audio_test.csv')
+y_train = x_train['label']
+y_test = x_test['label']
+
+del x_train['label']
+del x_test['label']
+del x_train['wav_file']
+del x_test['wav_file']
+
+rf_classifier = RandomForestClassifier(n_estimators=1200, min_samples_split=25)
+rf_classifier.fit(x_train, y_train)
+pred_probs = rf_classifier.predict_proba(x_test)
+display_results(y_test, pred_probs,'rf_classifier_model')
+
+
+xgb_classifier = xgb.XGBClassifier(max_depth=10, learning_rate=0.001, objective='multi:softprob',
+                                   n_estimators=1200, sub_sample=0.8, num_class=6,
+                                   booster='gbtree', n_jobs=4)
+xgb_classifier.fit(x_train, y_train)
+pred_probs = xgb_classifier.predict_proba(x_test)
+display_results(y_test, pred_probs, 'xgb_classifier_model')
+
+mlp_classifier = MLPClassifier(hidden_layer_sizes=(350, ), activation='relu', solver='adam', alpha=0.0001,
+                               batch_size='auto', learning_rate='adaptive', learning_rate_init=0.001,
+                               power_t=0.5, max_iter=1000, shuffle=True, random_state=None, tol=0.0001,
+                               verbose=False, warm_start=True, momentum=0.8, nesterovs_momentum=True,
+                               early_stopping=False, validation_fraction=0.1, beta_1=0.9, beta_2=0.999,
+                               epsilon=1e-08)
+
+mlp_classifier.fit(x_train, y_train)
+pred_probs = mlp_classifier.predict_proba(x_test)
+display_results(y_test, pred_probs,'mlp')
