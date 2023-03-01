@@ -76,6 +76,7 @@ def Read_labels(datapath):
 
 
 def Read_audio(datapath, labels_df):
+    file_path2 = 'C:/Users/avata/Desktop/GP/IEMOCAP_full_release/Session1/dialog/wav/'
     sr = 44100
     audio_vectors = {}
     wav_file_path = datapath
@@ -84,6 +85,7 @@ def Read_audio(datapath, labels_df):
         try:
             orig_wav_vector, _sr = librosa.load(wav_file_path + orig_wav_file, sr=sr)
             orig_wav_file, file_format = orig_wav_file.split('.')
+            print(orig_wav_file)
             for index, row in labels_df[labels_df['wav_file'].str.contains(orig_wav_file)].iterrows():
                 start_time, end_time, truncated_wav_file_name, emotion, val, act, dom = row['start_time'], row[
                     'end_time'], row['wav_file'], row['emotion'], row['val'], row['act'], row['dom']
@@ -138,7 +140,7 @@ def extract_audio_features2(Audio_vectors, labels_df, emotion_dict):
 # sr = 44100
 
 
-# def show():
+def show():
     labels_df = pd.read_csv('C:/Users/avata/Desktop/SPEECH MODEL/data/df_iemocap.csv')
     audio_vectors = pickle.load(open('C:/Users/avata/Desktop/SPEECH MODEL/data/audio_vectors1.pkl', 'rb'))
 #     random_file_name = list(audio_vectors.keys())[random.choice(range(len(audio_vectors.keys())))]
@@ -157,12 +159,15 @@ def extract_audio_features2(Audio_vectors, labels_df, emotion_dict):
 
 
 def extract_audio_features(labels, audio_vector, emotion_dictionary, sessions, columns):
+    i = 0
     features_df = pd.DataFrame(columns=columns)
     for index, row in tqdm(labels_df[labels_df['wav_file'].str.contains('Ses01')].iterrows()):
         try:
+            print('here')
             name = row['wav_file']
             label = emotion_dictionary[row['emotion']]
             y = audio_vector[name]
+
 
             #            start extracting features
             features_list = [name, label]
@@ -177,7 +182,8 @@ def extract_audio_features(labels, audio_vector, emotion_dictionary, sessions, c
             rmse_std = np.std(rmse)
             features_list.append(rmse_mean)
             features_list.append(rmse_std)
-
+            mel = np.mean(librosa.feature.melspectrogram(y, sr=sr).T, axis=0)
+            features_list.append(mel)
             # calculate silence from rmse and threshold
             silence = 0
             for energy in rmse:
@@ -203,6 +209,9 @@ def extract_audio_features(labels, audio_vector, emotion_dictionary, sessions, c
             features_list.append(1000 * np.max(auto_corrs) / len(auto_corrs))  # auto_corr_max (scaled by 1000)
             features_list.append(np.std(auto_corrs))  # auto_corr_std
             features_df = features_df.append(pd.DataFrame(features_list, index=columns).transpose(), ignore_index=True)
+            if i == 10:
+                break
+            i+=1
         except:
             print('ai haga')
     return features_df
@@ -242,9 +251,12 @@ def display_results(y_test, pred_probs,model):
     print('Test Set Recall =  {0:.3f}'.format(recall_score(y_test, pred, average='macro')))
 
 
+audio_vector_and_labels()
 labels_df = pd.read_csv('C:/Users/avata/Desktop/SPEECH MODEL/data/df_iemocap.csv')
 audio_vectors = pickle.load(open('C:/Users/avata/Desktop/SPEECH MODEL/data/audio_vectors1.pkl', 'rb'))
-# map_oversample_split()
+audio_df = extract_audio_features(labels_df,audio_vectors,emotion_dict,sessions=1,columns=columns)
+audio_df.to_csv('data/features_df.csv')
+map_oversample_split()
 
 x_train = pd.read_csv('data/audio_train.csv')
 x_test = pd.read_csv('data/audio_test.csv')
